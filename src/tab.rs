@@ -2413,7 +2413,7 @@ impl Tab {
         let (cols, column_spacing) = {
             let width_m1 = width.checked_sub(item_width).unwrap_or(0);
             let cols_m1 = width_m1 / (item_width + space_xxs as usize);
-            let cols = if self.desktop_mode { 1 } else { cols_m1 + 1 }; //TODO HACK
+            let cols = cols_m1;
             let spacing = width_m1
                 .checked_div(cols_m1)
                 .unwrap_or(0)

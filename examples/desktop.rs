@@ -26,11 +26,14 @@ use cosmic::{
     },
     iced_runtime::core::window::Id as SurfaceId,
     style, theme,
-    widget::{self, menu::KeyBind},
+    widget::{
+        self,
+        menu::{Action as MenuAction, KeyBind},
+    },
     Element,
 };
 use cosmic_files::{
-    app::Action,
+    app::{self, Action},
     config::TabConfig,
     tab::{self, ItemMetadata, Location, Tab},
 };
@@ -375,6 +378,14 @@ impl cosmic::Application for App {
                 let mut commands = Vec::new();
                 for tab_command in tab_commands {
                     match tab_command {
+                        tab::Command::Action(action) => match action.message() {
+                            app::Message::TabMessage(_entity_opt, tab_message) => {
+                                commands.push(self.update(Message::TabMessage(tab_message)));
+                            }
+                            unsupported => {
+                                log::warn!("{unsupported:?} not supported in desktop mode");
+                            }
+                        },
                         tab::Command::FocusButton(id) => {
                             commands.push(widget::button::focus(id));
                         }
@@ -393,7 +404,7 @@ impl cosmic::Application for App {
                             commands.push(scrollable::scroll_to(id, offset));
                         }
                         unsupported => {
-                            log::warn!("{unsupported:?} not supported in desktop");
+                            log::warn!("{unsupported:?} not supported in desktop mode");
                         }
                     }
                 }
