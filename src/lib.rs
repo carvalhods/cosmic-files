@@ -9,10 +9,10 @@ use cosmic::{
 use std::{path::PathBuf, process};
 
 use app::{App, Flags};
-mod app;
+pub mod app;
 pub mod clipboard;
 use config::{Config, CONFIG_VERSION};
-mod config;
+pub mod config;
 pub mod dialog;
 mod key_bind;
 mod localize;
@@ -23,7 +23,7 @@ mod mounter;
 mod mouse_area;
 mod operation;
 mod spawn_detached;
-mod tab;
+pub mod tab;
 
 pub fn home_dir() -> PathBuf {
     match dirs::home_dir() {

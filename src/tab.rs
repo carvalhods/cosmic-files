@@ -43,7 +43,7 @@ use std::{
     fmt,
     fs::{self, Metadata},
     num::NonZeroU16,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -213,6 +213,20 @@ fn hidden_attribute(metadata: &Metadata) -> bool {
     metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN == FILE_ATTRIBUTE_HIDDEN
 }
 
+pub fn icon_for_desktop_file(path: &Path) -> Option<String> {
+    let entry = match freedesktop_entry_parser::parse_entry(path) {
+        Ok(ok) => ok,
+        Err(err) => {
+            log::warn!("failed to parse {:?}: {}", path, err);
+            return None;
+        }
+    };
+    entry
+        .section("Desktop Entry")
+        .attr("Icon")
+        .map(|x| x.to_string())
+}
+
 pub fn item_from_entry(
     path: PathBuf,
     name: String,
@@ -234,12 +248,33 @@ pub fn item_from_entry(
             )
         } else {
             let mime = mime_for_path(&path);
-            (
-                mime.clone(),
-                mime_icon(mime.clone(), sizes.grid()),
-                mime_icon(mime.clone(), sizes.list()),
-                mime_icon(mime, sizes.list_condensed()),
-            )
+            //TODO: clean this up, implement for trash
+            let icon_name_opt = if mime == "application/x-desktop" {
+                icon_for_desktop_file(&path)
+            } else {
+                None
+            };
+            if let Some(icon_name) = icon_name_opt {
+                (
+                    mime.clone(),
+                    widget::icon::from_name(&*icon_name)
+                        .size(sizes.grid())
+                        .handle(),
+                    widget::icon::from_name(&*icon_name)
+                        .size(sizes.list())
+                        .handle(),
+                    widget::icon::from_name(&*icon_name)
+                        .size(sizes.list_condensed())
+                        .handle(),
+                )
+            } else {
+                (
+                    mime.clone(),
+                    mime_icon(mime.clone(), sizes.grid()),
+                    mime_icon(mime.clone(), sizes.list()),
+                    mime_icon(mime, sizes.list_condensed()),
+                )
+            }
         };
 
     let open_with = mime_apps(&mime);
@@ -932,6 +967,7 @@ pub struct Tab {
     pub config: TabConfig,
     pub(crate) items_opt: Option<Vec<Item>>,
     pub dnd_hovered: Option<(Location, Instant)>,
+    pub desktop_mode: bool,
     scrollable_id: widget::Id,
     select_focus: Option<usize>,
     select_range: Option<(usize, usize)>,
@@ -965,6 +1001,7 @@ impl Tab {
             clicked: None,
             dnd_hovered: None,
             selected_clicked: false,
+            desktop_mode: false,
         }
     }
 
@@ -986,6 +1023,10 @@ impl Tab {
 
     pub fn items_opt(&self) -> Option<&Vec<Item>> {
         self.items_opt.as_ref()
+    }
+
+    pub fn items_opt_mut(&mut self) -> Option<&mut Vec<Item>> {
+        self.items_opt.as_mut()
     }
 
     pub fn set_items(&mut self, items: Vec<Item>) {
@@ -1866,7 +1907,14 @@ impl Tab {
             }
         }
         if let Some(location) = cd {
-            if location != self.location {
+            if self.desktop_mode {
+                match location {
+                    Location::Path(path) => {
+                        commands.push(Command::OpenFile(path));
+                    }
+                    _ => {}
+                }
+            } else if location != self.location {
                 if match &location {
                     Location::Path(path) => path.is_dir(),
                     Location::Search(path, _term) => path.is_dir(),
@@ -2365,7 +2413,7 @@ impl Tab {
         let (cols, column_spacing) = {
             let width_m1 = width.checked_sub(item_width).unwrap_or(0);
             let cols_m1 = width_m1 / (item_width + space_xxs as usize);
-            let cols = cols_m1 + 1;
+            let cols = if self.desktop_mode { 1 } else { cols_m1 + 1 }; //TODO HACK
             let spacing = width_m1
                 .checked_div(cols_m1)
                 .unwrap_or(0)
@@ -2934,7 +2982,11 @@ impl Tab {
         // Update cached size
         self.size_opt.set(Some(size));
 
-        let location_view = self.location_view();
+        let location_view_opt = if self.desktop_mode {
+            None
+        } else {
+            Some(self.location_view())
+        };
         let (drag_list, mut item_view, can_scroll) = match self.config.view {
             View::Grid => self.grid_view(),
             View::List => self.list_view(),
@@ -2993,7 +3045,9 @@ impl Tab {
                 .position(widget::popover::Position::Point(point));
         }
         let mut tab_column = widget::column::with_capacity(3);
-        tab_column = tab_column.push(location_view);
+        if let Some(location_view) = location_view_opt {
+            tab_column = tab_column.push(location_view);
+        }
         if can_scroll {
             tab_column = tab_column.push(
                 widget::scrollable(popover)
