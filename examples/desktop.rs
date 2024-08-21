@@ -213,7 +213,7 @@ impl cosmic::Application for App {
             Location::Path(cosmic_files::home_dir())
         };
         let mut tab = Tab::new(location, TabConfig::default());
-        tab.desktop_mode = true;
+        tab.mode = tab::Mode::Desktop;
 
         let mut app = App {
             core,
@@ -386,11 +386,12 @@ impl cosmic::Application for App {
                                 log::warn!("{unsupported:?} not supported in desktop mode");
                             }
                         },
-                        tab::Command::FocusButton(id) => {
-                            commands.push(widget::button::focus(id));
-                        }
-                        tab::Command::FocusTextInput(id) => {
-                            commands.push(widget::text_input::focus(id));
+                        tab::Command::Iced(iced_command) => {
+                            commands.push(
+                                iced_command.map(|tab_message| {
+                                    message::app(Message::TabMessage(tab_message))
+                                }),
+                            );
                         }
                         tab::Command::OpenFile(item_path) => {
                             match open::that_detached(&item_path) {
@@ -399,9 +400,6 @@ impl cosmic::Application for App {
                                     log::warn!("failed to open {:?}: {}", item_path, err);
                                 }
                             }
-                        }
-                        tab::Command::Scroll(id, offset) => {
-                            commands.push(scrollable::scroll_to(id, offset));
                         }
                         unsupported => {
                             log::warn!("{unsupported:?} not supported in desktop mode");

@@ -13,7 +13,7 @@ use cosmic::{
         //TODO: export in cosmic::widget
         widget::{
             container, horizontal_rule,
-            scrollable::{AbsoluteOffset, Viewport},
+            scrollable::{self, AbsoluteOffset, Viewport},
         },
         Alignment,
         Border,
@@ -605,21 +605,18 @@ impl Location {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Command {
     Action(Action),
     ChangeLocation(String, Location, Option<PathBuf>),
+    DropFiles(PathBuf, ClipboardPaste),
     EmptyTrash,
-    FocusButton(widget::Id),
-    FocusTextInput(widget::Id),
+    Iced(cosmic::Command<Message>),
+    LocationProperties(usize),
+    MoveToTrash(Vec<PathBuf>),
     OpenFile(PathBuf),
     OpenInNewTab(PathBuf),
     OpenInNewWindow(PathBuf),
-    LocationProperties(usize),
-    Scroll(widget::Id, AbsoluteOffset),
-    DropFiles(PathBuf, ClipboardPaste),
-    Timeout(Duration, Message),
-    MoveToTrash(Vec<PathBuf>),
 }
 
 #[derive(Clone, Debug)]
@@ -947,6 +944,23 @@ impl HeadingOptions {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum Mode {
+    App,
+    Desktop,
+    Dialog(DialogKind),
+}
+
+impl Mode {
+    /// Whether multiple files can be selected in this mode
+    pub fn multiple(&self) -> bool {
+        match self {
+            Mode::App | Mode::Desktop => true,
+            Mode::Dialog(dialog) => dialog.multiple(),
+        }
+    }
+}
+
 // TODO when creating items, pass <Arc<SelectedItems>> to each item
 // as a drag data, so that when dnd is initiated, they are all included
 #[derive(Clone)]
@@ -956,7 +970,7 @@ pub struct Tab {
     pub location_context_menu_point: Option<Point>,
     pub location_context_menu_index: Option<usize>,
     pub context_menu: Option<Point>,
-    pub dialog: Option<DialogKind>,
+    pub mode: Mode,
     pub scroll_opt: Option<AbsoluteOffset>,
     pub size_opt: Cell<Option<Size>>,
     pub item_view_size_opt: Cell<Option<Size>>,
@@ -967,7 +981,6 @@ pub struct Tab {
     pub config: TabConfig,
     pub(crate) items_opt: Option<Vec<Item>>,
     pub dnd_hovered: Option<(Location, Instant)>,
-    pub desktop_mode: bool,
     scrollable_id: widget::Id,
     select_focus: Option<usize>,
     select_range: Option<(usize, usize)>,
@@ -984,7 +997,7 @@ impl Tab {
             context_menu: None,
             location_context_menu_point: None,
             location_context_menu_index: None,
-            dialog: None,
+            mode: Mode::App,
             scroll_opt: None,
             size_opt: Cell::new(None),
             item_view_size_opt: Cell::new(None),
@@ -1001,7 +1014,6 @@ impl Tab {
             clicked: None,
             dnd_hovered: None,
             selected_clicked: false,
-            desktop_mode: false,
         }
     }
 
@@ -1289,10 +1301,8 @@ impl Tab {
         let mut commands = Vec::new();
         let mut cd = None;
         let mut history_i_opt = None;
-        let mod_ctrl = modifiers.contains(Modifiers::CTRL)
-            && self.dialog.as_ref().map_or(true, |x| x.multiple());
-        let mod_shift = modifiers.contains(Modifiers::SHIFT)
-            && self.dialog.as_ref().map_or(true, |x| x.multiple());
+        let mod_ctrl = modifiers.contains(Modifiers::CTRL) && self.mode.multiple();
+        let mod_shift = modifiers.contains(Modifiers::SHIFT) && self.mode.multiple();
         match message {
             Message::ClickRelease(click_i_opt) => {
                 if click_i_opt == self.clicked.take() {
@@ -1438,7 +1448,7 @@ impl Tab {
                         for (i, item) in items.iter_mut().enumerate() {
                             if Some(i) == click_i_opt {
                                 // Filter out selection if it does not match dialog kind
-                                if let Some(dialog) = &self.dialog {
+                                if let Mode::Dialog(dialog) = &self.mode {
                                     let item_is_dir = item.metadata.is_dir();
                                     if item_is_dir != dialog.is_dir() {
                                         // Allow selecting folder if dialog is for files to make it
@@ -1464,7 +1474,7 @@ impl Tab {
                     }
                     if self.select_focus.take().is_some() {
                         // Unfocus currently focused button
-                        commands.push(Command::FocusButton(widget::Id::unique()));
+                        commands.push(Command::Iced(widget::button::focus(widget::Id::unique())));
                     }
                 }
             }
@@ -1522,14 +1532,16 @@ impl Tab {
                     self.select_rect(rect, mod_ctrl, mod_shift);
                     if self.select_focus.take().is_some() {
                         // Unfocus currently focused button
-                        commands.push(Command::FocusButton(widget::Id::unique()));
+                        commands.push(Command::Iced(widget::button::focus(widget::Id::unique())));
                     }
                 }
                 None => {}
             },
             Message::EditLocation(edit_location) => {
                 if self.edit_location.is_none() && edit_location.is_some() {
-                    commands.push(Command::FocusTextInput(self.edit_location_id.clone()));
+                    commands.push(Command::Iced(widget::text_input::focus(
+                        self.edit_location_id.clone(),
+                    )));
                 }
                 self.edit_location = edit_location;
             }
@@ -1575,10 +1587,13 @@ impl Tab {
                     self.select_position(0, 0, mod_shift);
                 }
                 if let Some(offset) = self.select_focus_scroll() {
-                    commands.push(Command::Scroll(self.scrollable_id.clone(), offset));
+                    commands.push(Command::Iced(scrollable::scroll_to(
+                        self.scrollable_id.clone(),
+                        offset,
+                    )));
                 }
                 if let Some(id) = self.select_focus_id() {
-                    commands.push(Command::FocusButton(id));
+                    commands.push(Command::Iced(widget::button::focus(id)));
                 }
             }
             Message::ItemLeft => {
@@ -1620,10 +1635,13 @@ impl Tab {
                     self.select_position(0, 0, mod_shift);
                 }
                 if let Some(offset) = self.select_focus_scroll() {
-                    commands.push(Command::Scroll(self.scrollable_id.clone(), offset));
+                    commands.push(Command::Iced(scrollable::scroll_to(
+                        self.scrollable_id.clone(),
+                        offset,
+                    )));
                 }
                 if let Some(id) = self.select_focus_id() {
-                    commands.push(Command::FocusButton(id));
+                    commands.push(Command::Iced(widget::button::focus(id)));
                 }
             }
             Message::ItemRight => {
@@ -1647,10 +1665,13 @@ impl Tab {
                     self.select_position(0, 0, mod_shift);
                 }
                 if let Some(offset) = self.select_focus_scroll() {
-                    commands.push(Command::Scroll(self.scrollable_id.clone(), offset));
+                    commands.push(Command::Iced(scrollable::scroll_to(
+                        self.scrollable_id.clone(),
+                        offset,
+                    )));
                 }
                 if let Some(id) = self.select_focus_id() {
-                    commands.push(Command::FocusButton(id));
+                    commands.push(Command::Iced(widget::button::focus(id)));
                 }
             }
             Message::ItemUp => {
@@ -1677,10 +1698,13 @@ impl Tab {
                     self.select_position(0, 0, mod_shift);
                 }
                 if let Some(offset) = self.select_focus_scroll() {
-                    commands.push(Command::Scroll(self.scrollable_id.clone(), offset));
+                    commands.push(Command::Iced(scrollable::scroll_to(
+                        self.scrollable_id.clone(),
+                        offset,
+                    )));
                 }
                 if let Some(id) = self.select_focus_id() {
-                    commands.push(Command::FocusButton(id));
+                    commands.push(Command::Iced(widget::button::focus(id)));
                 }
             }
             Message::Location(location) => {
@@ -1776,7 +1800,7 @@ impl Tab {
                 self.select_all();
                 if self.select_focus.take().is_some() {
                     // Unfocus currently focused button
-                    commands.push(Command::FocusButton(widget::Id::unique()));
+                    commands.push(Command::Iced(widget::button::focus(widget::Id::unique())));
                 }
             }
             Message::Thumbnail(path, thumbnail) => {
@@ -1855,7 +1879,13 @@ impl Tab {
             Message::DndEnter(loc) => {
                 self.dnd_hovered = Some((loc.clone(), Instant::now()));
                 if loc != self.location {
-                    commands.push(Command::Timeout(HOVER_DURATION, Message::DndHover(loc)));
+                    commands.push(Command::Iced(cosmic::Command::perform(
+                        async move {
+                            tokio::time::sleep(HOVER_DURATION).await;
+                            Message::DndHover(loc)
+                        },
+                        |x| x,
+                    )));
                 }
             }
             Message::DndLeave(loc) => {
@@ -1907,7 +1937,7 @@ impl Tab {
             }
         }
         if let Some(location) = cd {
-            if self.desktop_mode {
+            if matches!(self.mode, Mode::Desktop) {
                 match location {
                     Location::Path(path) => {
                         commands.push(Command::OpenFile(path));
@@ -2982,7 +3012,7 @@ impl Tab {
         // Update cached size
         self.size_opt.set(Some(size));
 
-        let location_view_opt = if self.desktop_mode {
+        let location_view_opt = if matches!(self.mode, Mode::Desktop) {
             None
         } else {
             Some(self.location_view())

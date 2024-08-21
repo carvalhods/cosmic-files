@@ -95,6 +95,8 @@ pub fn context_menu<'a>(
     selected_types.sort_unstable();
     selected_types.dedup();
 
+    let is_app = matches!(tab.mode, tab::Mode::App);
+
     let mut children: Vec<Element<_>> = Vec::new();
     match tab.location {
         Location::Path(_) | Location::Search(_, _) => {
@@ -102,55 +104,68 @@ pub fn context_menu<'a>(
                 if selected_dir == 1 && selected == 1 || selected_dir == 0 {
                     children.push(menu_item(fl!("open"), Action::Open).into());
                 }
-                if selected == 1 {
-                    children.push(menu_item(fl!("open-with"), Action::OpenWith).into());
-                    if selected_dir == 1 {
-                        children
-                            .push(menu_item(fl!("open-in-terminal"), Action::OpenTerminal).into());
+                if is_app {
+                    if selected == 1 {
+                        children.push(menu_item(fl!("open-with"), Action::OpenWith).into());
+                        if selected_dir == 1 {
+                            children.push(
+                                menu_item(fl!("open-in-terminal"), Action::OpenTerminal).into(),
+                            );
+                        }
                     }
-                }
-                if matches!(tab.location, Location::Search(_, _)) {
-                    children.push(
-                        menu_item(fl!("open-item-location"), Action::OpenItemLocation).into(),
-                    );
-                }
-                // All selected items are directories
-                if selected == selected_dir {
-                    children.push(menu_item(fl!("open-in-new-tab"), Action::OpenInNewTab).into());
-                    children
-                        .push(menu_item(fl!("open-in-new-window"), Action::OpenInNewWindow).into());
-                }
-                children.push(container(horizontal_rule(1)).padding([0, 8]).into());
-                children.push(menu_item(fl!("rename"), Action::Rename).into());
-                children.push(menu_item(fl!("cut"), Action::Cut).into());
-                children.push(menu_item(fl!("copy"), Action::Copy).into());
+                    if matches!(tab.location, Location::Search(_, _)) {
+                        children.push(
+                            menu_item(fl!("open-item-location"), Action::OpenItemLocation).into(),
+                        );
+                    }
+                    // All selected items are directories
+                    if selected == selected_dir {
+                        children
+                            .push(menu_item(fl!("open-in-new-tab"), Action::OpenInNewTab).into());
+                        children.push(
+                            menu_item(fl!("open-in-new-window"), Action::OpenInNewWindow).into(),
+                        );
+                    }
+                    children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+                    children.push(menu_item(fl!("rename"), Action::Rename).into());
+                    children.push(menu_item(fl!("cut"), Action::Cut).into());
+                    children.push(menu_item(fl!("copy"), Action::Copy).into());
 
-                let supported_archive_types = ["application/x-tar", "application/zip"]
-                    .iter()
-                    .filter_map(|mime_type| mime_type.parse::<Mime>().ok())
-                    .collect::<Vec<_>>();
-                selected_types.retain(|t| !supported_archive_types.contains(t));
-                if selected_types.is_empty() {
-                    children.push(menu_item(fl!("extract-here"), Action::ExtractHere).into());
-                }
+                    let supported_archive_types = ["application/x-tar", "application/zip"]
+                        .iter()
+                        .filter_map(|mime_type| mime_type.parse::<Mime>().ok())
+                        .collect::<Vec<_>>();
+                    selected_types.retain(|t| !supported_archive_types.contains(t));
+                    if selected_types.is_empty() {
+                        children.push(menu_item(fl!("extract-here"), Action::ExtractHere).into());
+                    }
 
-                //TODO: Print?
-                children.push(container(horizontal_rule(1)).padding([0, 8]).into());
-                children.push(menu_item(fl!("show-details"), Action::Properties).into());
-                children.push(container(horizontal_rule(1)).padding([0, 8]).into());
-                children.push(menu_item(fl!("add-to-sidebar"), Action::AddToSidebar).into());
-                children.push(container(horizontal_rule(1)).padding([0, 8]).into());
-                children.push(menu_item(fl!("move-to-trash"), Action::MoveToTrash).into());
+                    //TODO: Print?
+                    children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+                    children.push(menu_item(fl!("show-details"), Action::Properties).into());
+                    children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+                    children.push(menu_item(fl!("add-to-sidebar"), Action::AddToSidebar).into());
+                    children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+                    children.push(menu_item(fl!("move-to-trash"), Action::MoveToTrash).into());
+                }
             } else {
-                //TODO: need better designs for menu with no selection
-                //TODO: have things like properties but they apply to the folder?
-                children.push(menu_item(fl!("new-file"), Action::NewFile).into());
-                children.push(menu_item(fl!("new-folder"), Action::NewFolder).into());
-                children.push(menu_item(fl!("open-in-terminal"), Action::OpenTerminal).into());
-                children.push(container(horizontal_rule(1)).padding([0, 8]).into());
-                children.push(menu_item(fl!("select-all"), Action::SelectAll).into());
-                children.push(menu_item(fl!("paste"), Action::Paste).into());
-                children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+                if is_app {
+                    //TODO: need better designs for menu with no selection
+                    //TODO: have things like properties but they apply to the folder?
+                    children.push(menu_item(fl!("new-file"), Action::NewFile).into());
+                    children.push(menu_item(fl!("new-folder"), Action::NewFolder).into());
+                    children.push(menu_item(fl!("open-in-terminal"), Action::OpenTerminal).into());
+                    children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+                }
+                if tab.mode.multiple() {
+                    children.push(menu_item(fl!("select-all"), Action::SelectAll).into());
+                }
+                if is_app {
+                    children.push(menu_item(fl!("paste"), Action::Paste).into());
+                }
+                if !children.is_empty() {
+                    children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+                }
                 // TODO: Nested menu
                 children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
                 children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
@@ -158,19 +173,23 @@ pub fn context_menu<'a>(
             }
         }
         Location::Trash => {
-            children.push(menu_item(fl!("select-all"), Action::SelectAll).into());
-            if selected > 0 {
+            if tab.mode.multiple() {
+                children.push(menu_item(fl!("select-all"), Action::SelectAll).into());
+            }
+            if !children.is_empty() {
                 children.push(container(horizontal_rule(1)).padding([0, 8]).into());
+            }
+            if selected > 0 {
                 children.push(menu_item(fl!("show-details"), Action::Properties).into());
                 children.push(container(horizontal_rule(1)).padding([0, 8]).into());
                 children
                     .push(menu_item(fl!("restore-from-trash"), Action::RestoreFromTrash).into());
+            } else {
+                // TODO: Nested menu
+                children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
+                children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
+                children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
             }
-            children.push(container(horizontal_rule(1)).padding([0, 8]).into());
-            // TODO: Nested menu
-            children.push(sort_item(fl!("sort-by-name"), HeadingOptions::Name));
-            children.push(sort_item(fl!("sort-by-modified"), HeadingOptions::Modified));
-            children.push(sort_item(fl!("sort-by-size"), HeadingOptions::Size));
         }
     }
 

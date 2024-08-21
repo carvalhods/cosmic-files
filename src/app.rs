@@ -10,7 +10,6 @@ use cosmic::{
         futures::{self, SinkExt},
         keyboard::{Event as KeyEvent, Key, Modifiers},
         subscription::{self, Subscription},
-        widget::scrollable,
         window::{self, Event as WindowEvent},
         Alignment, Event, Length,
     },
@@ -1952,14 +1951,25 @@ impl Application for App {
                                 self.rescan_tab(entity, tab_path, selection_path),
                             ]));
                         }
+                        tab::Command::DropFiles(to, from) => {
+                            commands.push(self.update(Message::PasteContents(to, from)));
+                        }
                         tab::Command::EmptyTrash => {
                             self.dialog_pages.push_back(DialogPage::EmptyTrash);
                         }
-                        tab::Command::FocusButton(id) => {
-                            commands.push(widget::button::focus(id));
+                        tab::Command::Iced(iced_command) => {
+                            commands.push(iced_command.map(move |tab_message| {
+                                message::app(Message::TabMessage(Some(entity), tab_message))
+                            }));
                         }
-                        tab::Command::FocusTextInput(id) => {
-                            commands.push(widget::text_input::focus(id));
+                        tab::Command::LocationProperties(index) => {
+                            self.context_page =
+                                ContextPage::Properties(Some(ContextItem::BreadCrumbs(index)));
+                            self.core.window.show_context = true;
+                            self.set_context_title(self.context_page.title());
+                        }
+                        tab::Command::MoveToTrash(paths) => {
+                            self.operation(Operation::Delete { paths });
                         }
                         tab::Command::OpenFile(item_path) => {
                             match open::that_detached(&item_path) {
@@ -1983,35 +1993,6 @@ impl Application for App {
                                 log::error!("failed to get current executable path: {}", err);
                             }
                         },
-                        tab::Command::LocationProperties(index) => {
-                            self.context_page =
-                                ContextPage::Properties(Some(ContextItem::BreadCrumbs(index)));
-                            self.core.window.show_context = true;
-                            self.set_context_title(self.context_page.title());
-                        }
-                        tab::Command::Scroll(id, offset) => {
-                            commands.push(scrollable::scroll_to(id, offset));
-                        }
-                        tab::Command::DropFiles(to, from) => {
-                            commands.push(self.update(Message::PasteContents(to, from)));
-                        }
-                        tab::Command::Timeout(d, tab_msg) => {
-                            commands.push(Command::perform(
-                                async move {
-                                    tokio::time::sleep(d).await;
-                                    tab_msg
-                                },
-                                move |msg| {
-                                    cosmic::app::Message::App(Message::TabMessage(
-                                        Some(entity),
-                                        msg,
-                                    ))
-                                },
-                            ));
-                        }
-                        tab::Command::MoveToTrash(paths) => {
-                            self.operation(Operation::Delete { paths });
-                        }
                     }
                 }
                 return Command::batch(commands);
